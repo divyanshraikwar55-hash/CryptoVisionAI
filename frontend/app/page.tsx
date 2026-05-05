@@ -1,9 +1,10 @@
 "use client";
 
-
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import React, { useMemo, useState, useEffect } from "react";
 import CandleChart from "../components/ui/CandlestickChart";
 import { motion } from "framer-motion";
+import { marked } from 'marked';
 import {
   LayoutDashboard,
   FlaskConical,
@@ -50,6 +51,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Time } from "lightweight-charts";
 import {
   LineChart,
   Line,
@@ -72,7 +74,7 @@ type ScenarioType = {
   volume: string;
 };
 type CandleType = {
-  time: number;
+  time: Time;
   open: number;
   high: number;
   low: number;
@@ -126,9 +128,10 @@ function GlassCard({ className = "", children }: { className?: string; children:
   return (
     <Card
       className={cn(
-        "border-white/10 bg-white/5 backdrop-blur-xl shadow-2xl shadow-cyan-500/5 text-slate-200",
-        className
-      )}
+  "border-white/10 bg-white/5 backdrop-blur-xl shadow-2xl shadow-cyan-500/5 text-slate-200",
+  "transition-all duration-300 hover:border-white/20 hover:shadow-cyan-500/15",
+  className
+)}
     >
       {children}
     </Card>
@@ -155,20 +158,44 @@ function MetricCard({
   };
 
   return (
-    <GlassCard className={cn("bg-gradient-to-br", toneClasses[tone])}>
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-sm text-slate-400">{title}</p>
-            <h3 className="mt-2 text-2xl font-semibold tracking-tight text-white">{value}</h3>
-            {sub && <p className="mt-2 text-xs text-slate-400">{sub}</p>}
+    <motion.div
+      whileHover={{ scale: 1.015 }}
+      transition={{ type: "spring", stiffness: 250, damping: 18 }}
+      className="group"
+    >
+      <GlassCard
+        className={cn(
+          "relative overflow-hidden border bg-gradient-to-br",
+          "before:pointer-events-none before:absolute before:inset-0 before:opacity-0 before:transition-opacity before:duration-500 before:content-['']",
+          "before:bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.15),_transparent_60%)] group-hover:before:opacity-100",
+          toneClasses[tone]
+        )}
+      >
+        <CardContent className="p-5">
+          <div className="flex items-start justify-between">
+            <div>
+              <p
+                className="text-xs uppercase tracking-widest text-slate-400"
+                title={sub || title}
+              >
+                {title}
+              </p>
+              <h3 className="mt-2 text-2xl font-semibold tracking-tight text-white tabular-nums">
+                {value}
+              </h3>
+              {sub && (
+                <p className="mt-2 text-xs text-slate-400 leading-relaxed">
+                  {sub}
+                </p>
+              )}
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-3 shadow-inner shadow-white/5">
+              <Icon className="h-5 w-5 text-cyan-300" />
+            </div>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-            <Icon className="h-5 w-5 text-cyan-300" />
-          </div>
-        </div>
-      </CardContent>
-    </GlassCard>
+        </CardContent>
+      </GlassCard>
+    </motion.div>
   );
 }
 
@@ -195,6 +222,11 @@ function ConfidenceMeter({ value }: { value: number }) {
     </div>
   );
 }
+function SkeletonBlock({ className = "" }: { className?: string }) {
+  return (
+    <div className={cn("animate-pulse rounded-xl bg-white/10", className)} />
+  );
+}
 
 export default function CryptoVisionAIFrontend() {
   const [mounted, setMounted] = useState(false);
@@ -207,6 +239,7 @@ export default function CryptoVisionAIFrontend() {
   const [loadingChart, setLoadingChart] = useState(false);
   const [signal, setSignal] = useState<"BUY" | "HOLD" | "SELL">("BUY");
   const [livePrice, setLivePrice] = useState<number | null>(null);
+  const [priceChange, setPriceChange] = useState<number | null>(null);
   const [lastFetchTime, setLastFetchTime] = useState(0);
   const [lockedScenario, setLockedScenario] = useState<ScenarioType | null>(null);
 
@@ -246,14 +279,36 @@ export default function CryptoVisionAIFrontend() {
 }, [selectedCoin]);
 
   const [loadingPrediction, setLoadingPrediction] = useState(false);
-  const [predictionError, setPredictionError] = useState("");
+  const [predictionError, setPredictionError] = useState<string | null>(null);
   const [predictionResult, setPredictionResult] = useState<any>(null);
+  const [hoverData, setHoverData] = useState<any>(null);
 
   // Move useMemo BEFORE the early return to comply with Rules of Hooks
   const activeCoin = useMemo(
     () => coinOptions.find((c) => c.value === selectedCoin) || coinOptions[0],
     [selectedCoin]
   );
+
+  const handleDownloadSummary = async () => {
+    try {
+      // Fetch the PDF file
+      const response = await fetch('/files/CryptoVision_AI_Summary.pdf');
+      const blob = await response.blob();
+      
+      // Create a blob URL and trigger download
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'CryptoVision_AI_Summary.pdf';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error downloading PDF:', error);
+      alert('Error downloading PDF. Please try again.');
+    }
+  };
 
   const fetchChartData = async () => {
   try {
@@ -269,13 +324,14 @@ export default function CryptoVisionAIFrontend() {
 
     const data = await res.json();
 
-    if (!Array.isArray(data)) {
+    if (!data || !Array.isArray(data)) {
       console.error("Invalid response:", data);
+      setChartData([]);
       return;
     }
 
     const formatted = data.map((item: any) => ({
-      time: Math.floor(item[0] / 1000),
+      time: Math.floor(item[0] / 1000) as Time,
       open: parseFloat(item[1]),
       high: parseFloat(item[2]),
       low: parseFloat(item[3]),
@@ -285,10 +341,16 @@ export default function CryptoVisionAIFrontend() {
     setChartData(formatted);
   } catch (err) {
     console.error("Fetch error:", err);
+    setChartData([]);
   } finally {
     setLoadingChart(false);
   }
 };
+
+  const handleManualRefresh = () => {
+  fetchChartData();
+  fetchLivePrice(); 
+  };
 
   const getSentiment = () => {
   if (!livePrice || !lockedScenario) {
@@ -325,25 +387,21 @@ export default function CryptoVisionAIFrontend() {
   };
 
   const fetchLivePrice = async () => {
-    try {
-      const res = await fetch(
-        `https://api.binance.com/api/v3/ticker/price?symbol=${selectedCoin}`
-      );
+  try {
+    const res = await fetch(
+      `https://api.binance.com/api/v3/ticker/24hr?symbol=${selectedCoin}`
+    );
 
-      const data = await res.json();
+    const data = await res.json();
 
-      if (data && data.price) {
-        setLivePrice(parseFloat(data.price));
-      } else {
-        throw new Error("Invalid response");
-      }
-    } catch (err) {
-      console.error("Live price error:", err);
-
-      
-      setLivePrice(69000);
+    if (data) {
+      setLivePrice(parseFloat(data.lastPrice));
+      setPriceChange(parseFloat(data.priceChangePercent)); // ✅ ADD THIS
     }
-  };
+  } catch (err) {
+    console.error("Live price error:", err);
+  }
+};
 
   useEffect(() => {
     setMounted(true);
@@ -354,8 +412,8 @@ export default function CryptoVisionAIFrontend() {
     fetchLivePrice();
 
     const interval = setInterval(() => {
-      fetchLivePrice(); // updates every 5 sec
-    }, 5000);
+      fetchLivePrice(); // updates every 10 sec
+    }, 10000);
 
     return () => clearInterval(interval);
   }, [selectedCoin]);
@@ -365,10 +423,23 @@ export default function CryptoVisionAIFrontend() {
   
 
   const handleRunPrediction = async () => {
+    setPredictionResult(null);   // ✅ clear old success
+    setPredictionError(null);   // ✅ clear old error
+    if (
+    !scenario.open ||
+    !scenario.high ||
+    !scenario.low ||
+    !scenario.close ||
+    !scenario.volume
+  ) {
+    setPredictionError("All fields are required");
+    return;
+}
     setLoadingPrediction(true);
-    setPredictionError("");
+    setPredictionError(null);
     setPredictionResult(null);
     setLockedScenario({ ...scenario });
+
 
     try {
       const response = await fetch("http://127.0.0.1:8000/predict", {
@@ -509,8 +580,11 @@ export default function CryptoVisionAIFrontend() {
     chartData={chartData}
     loadingChart={loadingChart}
     livePrice={livePrice}
-    fetchChartData={fetchChartData}
-    sentiment={getSentiment()}  
+    sentiment={getSentiment()}
+    fetchChartData={handleManualRefresh}  
+    priceChange={priceChange}
+    hoverData={hoverData}               
+    setHoverData={setHoverData}  
   />
 );
       case "simulator":
@@ -535,7 +609,7 @@ export default function CryptoVisionAIFrontend() {
       case "model-lab":
         return <ModelLabPage chartData={chartData} />;
       case "about":
-        return <AboutPage />;
+        return <AboutPage onDownloadSummary={handleDownloadSummary} />;
       default:
         return (
   <HomePage
@@ -555,7 +629,7 @@ export default function CryptoVisionAIFrontend() {
         <aside className="hidden w-72 border-r border-white/10 bg-white/5 backdrop-blur-xl lg:flex lg:flex-col">
           <div className="border-b border-white/10 p-6">
             <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-cyan-400/15 p-3">
+              <div className="rounded-2xl bg-cyan-400/15 p-3 shadow-lg shadow-cyan-500/20">
                 <Sparkles className="h-6 w-6 text-cyan-300" />
               </div>
               <div>
@@ -575,9 +649,10 @@ export default function CryptoVisionAIFrontend() {
                   onClick={() => setPage(item.id)}
                   className={cn(
                     "flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm transition-all",
+                    "hover:-translate-y-0.5 hover:bg-white/5 hover:text-white",
                     active
                       ? "bg-cyan-400/15 text-white shadow-lg shadow-cyan-500/10"
-                      : "text-slate-300 hover:bg-white/5 hover:text-white"
+                      : "text-slate-300"
                   )}
                 >
                   <Icon className="h-5 w-5" />
@@ -588,7 +663,7 @@ export default function CryptoVisionAIFrontend() {
           </nav>
 
           <div className="border-t border-white/10 p-4">
-            <GlassCard>
+            <GlassCard className="transition-all duration-300 hover:border-white/20 hover:shadow-cyan-500/20">
               <CardContent className="space-y-4 p-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-slate-400">Model Status</span>
@@ -645,27 +720,53 @@ function HomePage({
   chartData: CandleType[];
 }) {
   return (
-    <div className="space-y-10">
-      <section className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
-        <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-          <Badge className="rounded-full border-cyan-400/20 bg-cyan-500/15 px-4 py-1 text-cyan-300">AI-Powered Forecasting Platform</Badge>
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35 }}
+      className="space-y-12"
+    >
+      {/* Hero */}
+      <section className="grid gap-8 lg:grid-cols-[1.15fr_0.85fr]">
+        <motion.div
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-6"
+        >
+          <Badge className="rounded-full border-cyan-400/20 bg-cyan-500/15 px-4 py-1 text-cyan-300">
+            AI-Powered Forecasting Platform
+          </Badge>
           <div className="space-y-4">
             <h1 className="max-w-3xl text-4xl font-semibold leading-tight tracking-tight sm:text-5xl xl:text-6xl">
-              Predict Crypto <span className="bg-gradient-to-r from-cyan-300 to-blue-400 bg-clip-text text-transparent">Smarter</span> with AI
+              Predict Crypto{" "}
+              <span className="bg-gradient-to-r from-cyan-300 to-blue-400 bg-clip-text text-transparent">
+                Smarter
+              </span>{" "}
+              with AI
             </h1>
             <p className="max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-              Forecast Bitcoin, Ethereum, and Dogecoin using machine learning, technical indicators, market scenario simulation, and a polished analytics dashboard.
+              Forecast Bitcoin, Ethereum, and Dogecoin using machine learning,
+              technical indicators, market scenario simulation, and a polished
+              analytics dashboard.
             </p>
           </div>
+
           <div className="flex flex-wrap gap-3">
-            <Button onClick={onLaunch} className="rounded-2xl bg-cyan-500 px-6 text-slate-950 hover:bg-cyan-400">
+            <Button
+              onClick={onLaunch}
+              className="rounded-2xl bg-cyan-500 px-6 text-slate-950 hover:bg-cyan-400 transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
+            >
               Open Dashboard <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
-            <Button onClick={onSimulator} variant="outline" className="rounded-2xl border-white/10 bg-white/5 px-6 text-white hover:bg-white/10">
+            <Button
+              onClick={onSimulator}
+              variant="outline"
+              className="rounded-2xl border-white/10 bg-white/5 px-6 text-white hover:bg-white/10 transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
+            >
               Try Simulator
             </Button>
-            
           </div>
+
           <div className="flex flex-wrap gap-3 pt-2">
             {[
               "Multi-Crypto Support",
@@ -673,13 +774,17 @@ function HomePage({
               "Technical Indicators",
               "Model Intelligence",
             ].map((item) => (
-              <Badge key={item} className="rounded-full border-white/10 bg-white/5 px-4 py-1 text-slate-300">
+              <Badge
+                key={item}
+                className="rounded-full border-white/10 bg-white/5 px-4 py-1 text-slate-300"
+              >
                 {item}
               </Badge>
             ))}
           </div>
         </motion.div>
 
+        {/* Right Card */}
         <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}>
           <GlassCard className="overflow-hidden">
             <CardContent className="space-y-6 p-6">
@@ -690,35 +795,75 @@ function HomePage({
                 </div>
                 <SignalBadge signal="BUY" />
               </div>
+
               <div className="grid gap-4 sm:grid-cols-2">
-                <MetricCard title="Current Price" value="$69,890" sub="+2.34% in 24h" icon={TrendingUp} tone="up" />
-                <MetricCard title="Predicted Price" value="$71,120" sub="Next-day AI estimate" icon={Sparkles} tone="neutral" />
+                <MetricCard
+                  title="Current Price"
+                  value="$69,890"
+                  sub="+2.34% in 24h"
+                  icon={TrendingUp}
+                  tone="up"
+                />
+                <MetricCard
+                  title="Predicted Price"
+                  value="$71,120"
+                  sub="Next-day AI estimate"
+                  icon={Sparkles}
+                  tone="neutral"
+                />
               </div>
+
               <GlassCard>
                 <CardContent className="h-56 p-4">
                   <ResponsiveContainer width="100%" height={220}>
                     <AreaChart data={chartData.slice(-14)}>
                       <defs>
-                        <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#06B6D4" stopOpacity={0.45} />
-                          <stop offset="95%" stopColor="#06B6D4" stopOpacity={0} />
+                        <linearGradient
+                          id="colorPrice"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="5%"
+                            stopColor="#06B6D4"
+                            stopOpacity={0.45}
+                          />
+                          <stop
+                            offset="95%"
+                            stopColor="#06B6D4"
+                            stopOpacity={0}
+                          />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
+                      <CartesianGrid
+                        stroke="rgba(255,255,255,0.05)"
+                        vertical={false}
+                      />
                       <XAxis dataKey="time" hide />
                       <YAxis hide />
                       <Tooltip />
-                      <Area type="monotone" dataKey="close" stroke="#06B6D4" fillOpacity={1} fill="url(#colorPrice)" strokeWidth={2.5} />
+                      <Area
+                        type="monotone"
+                        dataKey="close"
+                        stroke="#06B6D4"
+                        fillOpacity={1}
+                        fill="url(#colorPrice)"
+                        strokeWidth={2.5}
+                      />
                     </AreaChart>
                   </ResponsiveContainer>
                 </CardContent>
               </GlassCard>
+
               <ConfidenceMeter value={84} />
             </CardContent>
           </GlassCard>
         </motion.div>
       </section>
 
+      {/* Feature Grid */}
       <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
         {[
           ["AI Price Forecast", "Predict next-day closing prices using trained ML models.", BrainCircuit],
@@ -728,7 +873,7 @@ function HomePage({
           ["Model Insights", "Compare model performance and understand feature importance.", BarChart3],
           ["Confidence Score", "Interpret forecasts with an AI confidence meter.", ShieldCheck],
         ].map(([title, desc, Icon]: any) => (
-          <GlassCard key={title}>
+          <GlassCard key={title} className="transition-all duration-300 hover:-translate-y-1 hover:shadow-cyan-500/10">
             <CardContent className="space-y-4 p-6">
               <div className="inline-flex rounded-2xl border border-white/10 bg-white/5 p-3">
                 <Icon className="h-5 w-5 text-cyan-300" />
@@ -741,7 +886,7 @@ function HomePage({
           </GlassCard>
         ))}
       </section>
-    </div>
+    </motion.div>
   );
 }
 
@@ -755,6 +900,9 @@ function DashboardPage({
   selectedCoin,
   setSelectedCoin,
   sentiment,
+  priceChange,
+  hoverData,
+  setHoverData,
 }: {
   activeCoin: any;
   signal: "BUY" | "HOLD" | "SELL";
@@ -765,17 +913,34 @@ function DashboardPage({
   selectedCoin: string;
   setSelectedCoin: (value: string) => void;
   sentiment: { label: string; value: number };
+  priceChange: number | null;
+  hoverData: any;
+  setHoverData: (data: any) => void;
 }) {
   const trendIcon = signal === "BUY" ? TrendingUp : signal === "SELL" ? TrendingDown : Minus;
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <p className="text-sm uppercase tracking-[0.2em] text-cyan-300/80">Dashboard</p>
-          <h2 className="mt-2 text-3xl font-semibold tracking-tight text-white">{activeCoin.label} Market Intelligence</h2>
-          <p className="mt-2 text-slate-400">Real-time market context, ML forecast, and actionable crypto insights.</p>
+  <motion.div
+    initial={{ opacity: 0, y: 12 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.35 }}
+    className="space-y-8"
+  >
+      {/* Top Bar */}
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+        <div className="space-y-3">
+          <p className="text-xs uppercase tracking-[0.3em] text-cyan-300/70">
+            Dashboard
+          </p>
+          <h2 className="text-3xl font-semibold tracking-tight text-white">
+            {activeCoin.label} Market Intelligence
+          </h2>
+          <p className="max-w-2xl text-sm text-slate-400">
+            Real-time market context, AI forecast, and actionable crypto
+            insights in a premium analytics console.
+          </p>
         </div>
-        <div className="flex flex-wrap gap-3">
+
+        <div className="flex flex-wrap items-center gap-3">
           <Select value={selectedCoin} onValueChange={setSelectedCoin}>
             <SelectTrigger className="w-48 rounded-2xl border-white/10 bg-white/5 text-white">
               <SelectValue placeholder="Select Coin" />
@@ -788,97 +953,179 @@ function DashboardPage({
               ))}
             </SelectContent>
           </Select>
+
           <Button
-  onClick={fetchChartData}
-  variant="outline"
-  className="rounded-2xl border-white/10 bg-white/5 text-white hover:bg-white/10"
->
-  <RefreshCcw className="mr-2 h-4 w-4" /> Refresh
-</Button>
+            onClick={fetchChartData}
+            disabled={loadingChart}
+            variant="outline"
+            className="rounded-2xl border-white/10 bg-white/5 text-white hover:bg-white/10 transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
+          >
+            <RefreshCcw
+              className={`mr-2 h-4 w-4 ${loadingChart ? "animate-spin" : ""}`}
+            />
+            {loadingChart ? "Refreshing..." : "Refresh"}
+          </Button>
         </div>
       </div>
 
-      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-5">
-        <GlassCard>
-  <CardContent className="p-5 space-y-4">
-
-    <div className="flex items-center justify-between">
-      <p className="text-sm text-slate-400">
-        Market Sentiment Index
-      </p>
-      <p className="text-lg font-semibold text-white">
-        {sentiment.value} / 100
-      </p>
-    </div>
-
-    <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
-      <div
-        className="h-full transition-all duration-700"
-        style={{
-          width: `${sentiment.value}%`,
-          background:
-            "linear-gradient(90deg, #ef4444, #f59e0b, #10b981)",
-        }}
-      />
-    </div>
-
-    <div className="flex items-center justify-between text-xs text-slate-400">
-      <span>Bearish</span>
-      <span className="text-white font-medium">
-        {sentiment.label}
-      </span>
-      <span>Bullish</span>
-    </div>
-
-  </CardContent>
-</GlassCard>
-        <MetricCard
-  title="Current Price"
-  value={livePrice ? `$${livePrice.toFixed(2)}` : "Loading..."}
-  sub="Live market data"
-  icon={TrendingUp}
-  tone="up"
-/>
-        <MetricCard title="Predicted Price" value="$71,120" sub="Next-day estimate" icon={Sparkles} tone="neutral" />
-        <MetricCard title="24h Change" value="+2.34%" sub="Short-term momentum" icon={Activity} tone="up" />
-        <GlassCard>
-          <CardContent className="space-y-4 p-5">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-slate-400">AI Signal</p>
-              <SignalBadge signal={signal} />
-            </div>
-            <div className="flex items-center gap-3">
-              {React.createElement(trendIcon, { className: "h-8 w-8 text-cyan-300" })}
+      {/* Hero Price + Quick Stats */}
+      <div className="grid gap-6 xl:grid-cols-[1.6fr_0.4fr]">
+        <GlassCard className="relative overflow-hidden">
+          <CardContent className="p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <h3 className="text-2xl font-semibold text-white">Bullish</h3>
-                <p className="text-xs text-slate-400">Positive short-term continuation</p>
+                <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
+                  Live Price
+                </p>
+                <div className="mt-2 flex items-end gap-3">
+                  {livePrice !== null ? (
+  <h3 className="text-5xl sm:text-6xl font-bold tracking-tight">
+    
+    ${livePrice.toFixed(2)}
+  </h3>
+) : (
+  <SkeletonBlock className="h-12 w-56" />
+)}
+                  <span
+                    className={cn(
+                      "text-sm font-medium",
+                      priceChange && priceChange >= 0
+                        ? "text-emerald-400"
+                        : "text-rose-400"
+                    )}
+                  >
+                    {priceChange !== null
+                      ? `${priceChange > 0 ? "+" : ""}${priceChange.toFixed(
+                          2
+                        )}%`
+                      : "--"}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-slate-400">
+                  Updated every 10 seconds · 24h change
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <SignalBadge signal={signal} />
+                <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300">
+                  Sentiment:{" "}
+                  <span className="font-semibold text-white">
+                    {sentiment.label}
+                  </span>
+                </div>
               </div>
             </div>
           </CardContent>
         </GlassCard>
+
         <GlassCard>
           <CardContent className="space-y-4 p-5">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-slate-400">AI Signal</p>
+              <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-cyan-300">
+                realtime
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              {React.createElement(trendIcon, {
+                className: "h-8 w-8 text-cyan-300",
+              })}
+              <div>
+                <h3 className="text-2xl font-semibold text-white">Bullish</h3>
+                <p className="text-xs text-slate-400">
+                  Positive short-term continuation
+                </p>
+              </div>
+            </div>
             <ConfidenceMeter value={84} />
-            <p className="text-xs leading-6 text-slate-400">Confidence is derived from trend alignment, volatility profile, and recent model consistency.</p>
           </CardContent>
         </GlassCard>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.4fr_0.6fr]">
+      {/* Main Chart + Right Insights */}
+      <div className="grid gap-6 xl:grid-cols-[1.5fr_0.5fr]">
         <GlassCard>
-          <CardHeader>
-            <CardTitle className="text-white text-white">
-  Candlestick / Trend View
-</CardTitle>
+          <CardHeader className="space-y-3 pb-0">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-white">
+                Candlestick / Trend View
+              </CardTitle>
+            </div>
             <CardDescription className="text-slate-400">
-  Use this area later for Plotly candlestick + MA overlays from your backend.
-</CardDescription>
+              Live OHLC with MA + RSI overlays. Crosshair provides exact values.
+            </CardDescription>
+
+            {/* Floating Info Bar */}
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-slate-300">
+              <div className="flex flex-wrap gap-4">
+                <span>Price:{" "}
+  <strong className="text-white">
+    {hoverData?.candle
+      ? `$${hoverData.candle.close.toFixed(2)}`
+      : "--"}
+  </strong>
+</span>
+
+<span>
+  MA(7):{" "}
+  <strong className="text-white">
+    {hoverData?.ma7 ? `$${hoverData.ma7.toFixed(2)}` : "--"}
+  </strong>
+</span>
+
+<span>
+  RSI:{" "}
+  <strong
+    className={
+      hoverData?.rsi > 70
+        ? "text-red-400"
+        : hoverData?.rsi < 30
+        ? "text-green-400"
+        : "text-white"
+    }
+  >
+    {hoverData?.rsi ? hoverData.rsi.toFixed(1) : "--"}
+  </strong>
+</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-2">
+              {["RSI", "MACD", "MA(7)", "MA(30)", "Volume"].map((chip) => (
+                <span
+                  key={chip}
+                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300"
+                >
+                  {chip}
+                </span>
+              ))}
+            </div>
           </CardHeader>
-          <CardContent className="h-[380px]">
-            <CardContent className="h-[380px]">
-  <CandleChart data={chartData} />
+
+          <CardContent className="h-[760px] pt-4">
+  <div className="flex h-full flex-col gap-3">
+    {/* Main Candlestick Panel */}
+    <div className="flex-1 rounded-2xl border border-white/10 bg-black/20 p-3">
+      {loadingChart ? (
+        <div className="flex h-full flex-col gap-3">
+          <SkeletonBlock className="h-4 w-40" />
+          <SkeletonBlock className="h-full w-full" />
+        </div>
+      ) : chartData.length === 0 ? (
+        <p className="text-slate-400">No data available</p>
+      ) : (
+        <CandleChart
+  data={chartData}
+  onHoverChange={(data) => {
+  console.log("RECEIVED:", data);
+  setHoverData(data);
+}}
+/>
+      )}
+    </div>
+
+  </div>
 </CardContent>
-          </CardContent>
         </GlassCard>
 
         <div className="space-y-5">
@@ -886,82 +1133,42 @@ function DashboardPage({
             <CardContent className="space-y-3 p-5 text-slate-300">
               <p className="text-sm text-slate-400">Trend Summary</p>
               <h3 className="text-2xl font-semibold text-white">
-  Moderate Bullish Momentum
-</h3>
-              <p className="text-sm leading-7 text-slate-400">Price remains above the short-term moving average, while RSI is elevated but not overheated.</p>
+                Moderate Bullish Momentum
+              </h3>
+              <p className="text-sm leading-7 text-slate-400">
+                Price remains above the short-term moving average, while RSI is
+                elevated but not overheated.
+              </p>
             </CardContent>
           </GlassCard>
+
           <GlassCard>
             <CardContent className="space-y-3 p-5 text-slate-300">
               <p className="text-sm text-slate-400">Forecast Insight</p>
-              <h3 className="text-2xl font-semibold text-cyan-300 tracking-tight">
-  +1.76% Expected Move
-</h3>
-              <p className="text-sm leading-7 text-slate-400">Model anticipates slight upside continuation with stable momentum and healthy volume support.</p>
+              <h3 className="text-3xl font-bold text-cyan-300 tracking-tight">
+                
+                +1.76% Expected Move
+              </h3>
+              <p className="text-sm leading-7 text-slate-400">
+                Model anticipates slight upside continuation with stable
+                momentum and healthy volume support.
+              </p>
             </CardContent>
           </GlassCard>
+
           <GlassCard>
             <CardContent className="space-y-3 p-5 text-slate-300">
               <p className="text-sm text-slate-400">Volatility</p>
-              <h3 className="text-2xl font-semibold text-white">
-  Medium
-</h3>
-              <p className="text-sm leading-7 text-slate-400">Recent price fluctuations are elevated but still within expected market range.</p>
+              <h3 className="text-2xl font-semibold text-white">Medium</h3>
+              <p className="text-sm leading-7 text-slate-400">
+                Recent price fluctuations are elevated but within expected
+                range.
+              </p>
             </CardContent>
           </GlassCard>
         </div>
       </div>
-
-      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard title="RSI" value="68.2" sub="Neutral / Slightly Overbought" icon={Activity} tone="neutral" />
-        <MetricCard title="MACD" value="472.8" sub="Positive crossover structure" icon={BarChart3} tone="up" />
-        <MetricCard title="MA Trend" value="Bullish" sub="Price above MA_7 and MA_30" icon={TrendingUp} tone="up" />
-        <MetricCard title="Volume Trend" value="High" sub="Strong participation observed" icon={CandlestickChart} tone="neutral" />
-      </div>
-
-      <GlassCard>
-        <CardHeader>
-          <CardTitle className="text-white">AI Market Insight</CardTitle>
-          <CardDescription className="text-slate-400">Rule-based explanation block for your current forecast.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="max-w-4xl text-sm text-slate-300 leading-8 text-slate-300">
-            Bitcoin is currently showing moderate bullish momentum, supported by rising volume, a positive MACD structure, and price stability above short-term moving averages. The forecasting model expects a mild upward move in the next session, though momentum should still be monitored for overextension.
-          </p>
-        </CardContent>
-      </GlassCard>
-
-      <GlassCard>
-        <CardHeader>
-          <CardTitle className="text-white">Latest Market Snapshot</CardTitle>
-          <CardDescription className="text-slate-400">Replace this with your live backend response later.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow className="border-white/10 hover:bg-transparent">
-                <TableHead className="text-slate-400">Date</TableHead>
-                <TableHead className="text-slate-400">Close</TableHead>
-                <TableHead className="text-slate-400">Volume</TableHead>
-                <TableHead className="text-slate-400">RSI</TableHead>
-                <TableHead className="text-slate-400">MACD</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {latestRows.map((row) => (
-                <TableRow key={row.date} className="border-white/10">
-                  <TableCell>{row.date}</TableCell>
-                  <TableCell>${row.close.toLocaleString()}</TableCell>
-                  <TableCell>{row.volume}</TableCell>
-                  <TableCell>{row.rsi}</TableCell>
-                  <TableCell>{row.macd}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </GlassCard>
-    </div>
+    </motion.div>
   );
 }
 
@@ -992,226 +1199,312 @@ function SimulatorPage({
   onPreset: (type: string) => void;
   loadingPrediction: boolean;
   predictionResult: any;
-  predictionError: string;
+  predictionError: string | null;
   signal: "BUY" | "HOLD" | "SELL";
   lockedScenario: any;
   history: any[];
+  
 }) {
   return (
-    <div className="space-y-8">
-      <div>
-        <p className="text-sm text-slate-300 uppercase tracking-[0.2em] text-cyan-300/80">Scenario Simulator</p>
-        <h2 className="mt-2 text-3xl font-semibold tracking-tight">What-if Market Forecasting</h2>
-        <p className="mt-2 max-w-3xl text-slate-400">Manually test OHLCV conditions and simulate how your model may respond to hypothetical market scenarios.</p>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-  <GlassCard>
-    <CardHeader>
-      <CardTitle className="text-white">Simulate Market Scenario</CardTitle>
-      <CardDescription className="text-slate-400">
-        This form will send data to your FastAPI backend.
-      </CardDescription>
-    </CardHeader>
-    <CardContent className="space-y-5">
-      <div className="space-y-2">
-        <Label className="text-slate-300">Cryptocurrency</Label>
-        <Select value={selectedCoin} onValueChange={setSelectedCoin}>
-          <SelectTrigger className="rounded-2xl border-white/10 bg-white/5 text-white">
-            <SelectValue placeholder="Select Coin" />
-          </SelectTrigger>
-          <SelectContent>
-            {coinOptions.map((coin) => (
-              <SelectItem key={coin.value} value={coin.value}>
-                {coin.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        {[
-          ["Open", "open"],
-          ["High", "high"],
-          ["Low", "low"],
-          ["Close", "close"],
-          ["Volume", "volume"],
-        ].map(([label, key]) => (
-          <div className="space-y-2" key={key}>
-            <Label className="text-slate-300">{label}</Label>
-            <Input
-              value={scenario[key]}
-              onChange={(e) =>
-                setScenario((prev: any) => ({
-                  ...prev,
-                  [key]: e.target.value,
-                }))
-              }
-              className="rounded-2xl border-white/10 bg-white/5 text-white placeholder:text-slate-500"
-            />
-          </div>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap gap-3 pt-2">
-        <Button
-          onClick={onRunPrediction}
-          disabled={loadingPrediction}
-          className="rounded-2xl bg-cyan-500 text-slate-950 hover:bg-cyan-400"
-        >
-          {loadingPrediction ? "Running..." : "Run Scenario"}
-        </Button>
-
-        <Button
-    onClick={onAutoFill} 
-    variant="outline"
-    className="rounded-2xl border-white/10 bg-white/5 text-white hover:bg-white/10"
+  <motion.div
+    initial={{ opacity: 0, y: 12 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.35 }}
+    className="space-y-8"
   >
-    Auto-fill Current Values
-</Button>
-
-        <Button
-          variant="outline"
-          className="rounded-2xl border-white/10 bg-white/5 text-white hover:bg-white/10"
-          onClick={() =>
-            setScenario({
-              open: "",
-              high: "",
-              low: "",
-              close: "",
-              volume: "",
-            })
-          }
-        >
-          Reset
-        </Button>
+      <div>
+        <p className="text-sm uppercase tracking-[0.2em] text-cyan-300/80">
+          Scenario Simulator
+        </p>
+        <h2 className="mt-2 text-3xl font-semibold tracking-tight">
+          What-if Market Forecasting
+        </h2>
+        <p className="mt-2 max-w-3xl text-slate-400">
+          Manually test OHLCV conditions and simulate how your model may respond
+          to hypothetical market scenarios.
+        </p>
       </div>
 
-      {predictionError && (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300">
-          {predictionError}
-        </div>
-      )}
+      <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        {/* Left Form */}
+        <GlassCard>
+          <CardHeader>
+            <CardTitle className="text-white">Simulate Market Scenario</CardTitle>
+            <CardDescription className="text-slate-400">
+              This form will send data to your FastAPI backend.
+            </CardDescription>
+          </CardHeader>
 
-      {predictionResult && (
-        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-300">
-          Prediction Generated Successfully
-        </div>
-      )}
-    </CardContent>
-  </GlassCard>
+          <CardContent className="space-y-6">
+            {/* Coin Selector */}
+            <div className="space-y-2">
+              <Label className="text-slate-300">Cryptocurrency</Label>
+              <Select value={selectedCoin} onValueChange={setSelectedCoin}>
+                <SelectTrigger className="rounded-2xl border-white/10 bg-white/5 text-white">
+                  <SelectValue placeholder="Select Coin" />
+                </SelectTrigger>
+                <SelectContent>
+                  {coinOptions.map((coin) => (
+                    <SelectItem key={coin.value} value={coin.value}>
+                      {coin.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-  <div className="space-y-6">
+            {/* Inputs */}
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <p className="mb-3 text-xs uppercase tracking-[0.2em] text-slate-400">
+                OHLCV Inputs
+              </p>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                {[
+                  ["Open", "open"],
+                  ["High", "high"],
+                  ["Low", "low"],
+                  ["Close", "close"],
+                  ["Volume", "volume"],
+                ].map(([label, key]) => (
+                  <div className="space-y-2" key={key}>
+                    <Label className="text-slate-300">{label}</Label>
+                    <Input
+                      value={scenario[key]}
+                      onChange={(e) =>
+                        setScenario((prev: any) => ({
+                          ...prev,
+                          [key]: e.target.value,
+                        }))
+                      }
+                      className="rounded-2xl border-white/10 bg-white/5 text-white placeholder:text-slate-500"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-wrap gap-3 pt-2">
+              <Button
+                onClick={onRunPrediction}
+                disabled={loadingPrediction}
+                className="rounded-2xl bg-cyan-500 text-slate-950 hover:bg-cyan-400 transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
+              >
+                {loadingPrediction ? "Running..." : "Run Scenario"}
+              </Button>
+
+              <Button
+                onClick={onAutoFill}
+                variant="outline"
+                className="rounded-2xl border-white/10 bg-white/5 text-white hover:bg-white/10 transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
+              >
+                Auto-fill Current Values
+              </Button>
+
+              <Button
+                variant="outline"
+                className="rounded-2xl border-white/10 bg-white/5 text-white hover:bg-white/10 transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
+                onClick={() =>
+                  setScenario({
+                    open: "",
+                    high: "",
+                    low: "",
+                    close: "",
+                    volume: "",
+                  })
+                }
+              >
+                Reset
+              </Button>
+            </div>
+
+            {/* Inline Status */}
+            {predictionError && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300"
+              >
+                {predictionError}
+              </motion.div>
+            )}
+
+            {predictionResult && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-300"
+              >
+                Prediction generated successfully.
+              </motion.div>
+            )}
+          </CardContent>
+        </GlassCard>
+
+        {/* Right Insights */}
+        <div className="space-y-6">
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-  <MetricCard
-    title="Predicted Price"
-    value={
-      predictionResult
-        ? `$${Number(predictionResult.predicted_price).toLocaleString()}`
-        : "--"
-    }
-    sub={`${activeCoin.short} next-day estimate`}
-    icon={Sparkles}
-    tone="neutral"
-  />
+            <MetricCard
+              title="Predicted Price"
+              value={
+                predictionResult
+                  ? `$${Number(predictionResult.predicted_price).toLocaleString()}`
+                  : "--"
+              }
+              sub={`${activeCoin.short} next-day estimate`}
+              icon={Sparkles}
+              tone="neutral"
+            />
 
-  <MetricCard
-    title="Expected Change"
-    value={
-  predictionResult && lockedScenario
-    ? `${(
-        ((predictionResult.predicted_price - Number(lockedScenario?.close || 0)) /
-          Number(lockedScenario?.close || 1)) *
-        100
-      ).toFixed(2)}%`
-    : "--"
-}
-    sub="Scenario-based forecast"
-    icon={
-      predictionResult && predictionResult.predicted_price >= Number(scenario.close)
-        ? TrendingUp
-        : TrendingDown
-    }
-    tone={
-      predictionResult && predictionResult.predicted_price >= Number(scenario.close)
-        ? "up"
-        : "down"
-    }
-  />
+            <MetricCard
+              title="Expected Change"
+              value={
+                predictionResult && lockedScenario
+                  ? `${(
+                      ((predictionResult.predicted_price -
+                        Number(lockedScenario?.close || 0)) /
+                        Number(lockedScenario?.close || 1)) *
+                      100
+                    ).toFixed(2)}%`
+                  : "--"
+              }
+              sub="Scenario-based forecast"
+              icon={
+                predictionResult &&
+                predictionResult.predicted_price >= Number(scenario.close)
+                  ? TrendingUp
+                  : TrendingDown
+              }
+              tone={
+                predictionResult &&
+                predictionResult.predicted_price >= Number(scenario.close)
+                  ? "up"
+                  : "down"
+              }
+            />
 
-  <GlassCard>
-    <CardContent className="space-y-4 p-5">
-      <p className="text-sm text-slate-400">AI Signal</p>
-      <SignalBadge signal={signal} />
-      <p className="text-xs leading-6 text-slate-400">
-        {predictionResult
-          ? `The model predicts a ${predictionResult.trend.toLowerCase()} outlook based on your input scenario.`
-          : "Run a scenario to generate a real AI signal."}
-      </p>
-    </CardContent>
-  </GlassCard>
+            <GlassCard>
+              <CardContent className="space-y-4 p-5">
+                <p className="text-sm text-slate-400">AI Signal</p>
+                <SignalBadge signal={signal} />
+                <p className="text-xs leading-6 text-slate-400">
+                  {predictionResult
+                    ? `The model predicts a ${predictionResult.trend.toLowerCase()} outlook based on your input scenario.`
+                    : "Run a scenario to generate a real AI signal."}
+                </p>
+              </CardContent>
+            </GlassCard>
 
-  <GlassCard>
-    <CardContent className="space-y-4 p-5">
-      <ConfidenceMeter value={predictionResult ? 84 : 0} />
-    </CardContent>
-  </GlassCard>
-</div>
+            <GlassCard>
+              <CardContent className="space-y-4 p-5">
+                <ConfidenceMeter value={predictionResult ? 84 : 0} />
+              </CardContent>
+            </GlassCard>
+          </div>
+
+          {/* Result Spotlight */}
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            <GlassCard className="border-white/10 bg-white/5">
+              <CardContent className="flex items-center gap-4 p-5">
+                <div
+                  className={cn(
+                    "rounded-2xl p-3",
+                    predictionResult &&
+                      predictionResult.predicted_price >= Number(scenario.close)
+                      ? "bg-emerald-500/15"
+                      : "bg-rose-500/15"
+                  )}
+                >
+                  {predictionResult &&
+                  predictionResult.predicted_price >= Number(scenario.close) ? (
+                    <TrendingUp className="h-6 w-6 text-emerald-300" />
+                  ) : (
+                    <TrendingDown className="h-6 w-6 text-rose-300" />
+                  )}
+                </div>
+
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                    Prediction Result
+                  </p>
+                  <h3 className="text-2xl font-semibold text-white">
+                    {predictionResult
+                      ? `$${Number(
+                          predictionResult.predicted_price
+                        ).toLocaleString()}`
+                      : "--"}
+                  </h3>
+                  <p className="text-sm text-slate-400">
+                    Trend:{" "}
+                    <span className="text-white">
+                      {predictionResult ? predictionResult.trend : "N/A"}
+                    </span>
+                  </p>
+                </div>
+              </CardContent>
+            </GlassCard>
+          </motion.div>
 
           <GlassCard>
             <CardHeader>
               <CardTitle className="text-white">Scenario Summary</CardTitle>
-              <CardDescription className="text-slate-400">Narrative explanation of your simulated market structure.</CardDescription>
+              <CardDescription className="text-slate-400">
+                Narrative explanation of your simulated market structure.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="text-sm leading-8 text-slate-300">
-  {predictionResult && predictionResult.reasons
-    ? predictionResult.reasons.map((reason: string, index: number) => (
-        <div key={index}>• {reason}</div>
-      ))
-    : "Run a scenario to see AI explanation."}
-</div>
+                {predictionResult && predictionResult.reasons
+                  ? predictionResult.reasons.map(
+                      (reason: string, index: number) => (
+                        <div key={index}>• {reason}</div>
+                      )
+                    )
+                  : "Run a scenario to see AI explanation."}
+              </div>
             </CardContent>
           </GlassCard>
+
           <GlassCard>
-  <CardContent className="p-4 space-y-3">
-    <h3 className="text-lg font-semibold text-white">
-      Prediction History
-    </h3>
+            <CardContent className="p-4 space-y-3">
+              <h3 className="text-lg font-semibold text-white">
+                Prediction History
+              </h3>
 
-    {history.length === 0 ? (
-      <p className="text-slate-400 text-sm">
-        No predictions yet
-      </p>
-    ) : (
-      history.map((item, index) => (
-        <div
-          key={index}
-          className="flex justify-between items-center border-b border-white/10 pb-2 text-sm"
-        >
-          <div>
-            <p className="text-white">{item.coin}</p>
-            <p className="text-slate-400 text-xs">{item.time}</p>
-          </div>
+              {history.length === 0 ? (
+                <p className="text-slate-400 text-sm">No predictions yet</p>
+              ) : (
+                history.map((item, index) => (
+                  <div
+                    key={index}
+                    className="flex justify-between items-center border-b border-white/10 pb-2 text-sm"
+                  >
+                    <div>
+                      <p className="text-white">{item.coin}</p>
+                      <p className="text-slate-400 text-xs">{item.time}</p>
+                    </div>
 
-          <div className="text-right">
-            <p className="text-cyan-400">${item.price}</p>
-            <p
-              className={
-                item.trend === "Bullish"
-                  ? "text-green-400"
-                  : "text-red-400"
-              }
-            >
-              {item.trend}
-            </p>
-          </div>
-        </div>
-      ))
-    )}
-  </CardContent>
-</GlassCard>
+                    <div className="text-right">
+                      <p className="text-cyan-400">${item.price}</p>
+                      <p
+                        className={
+                          item.trend === "Bullish"
+                            ? "text-green-400"
+                            : "text-red-400"
+                        }
+                      >
+                        {item.trend}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </GlassCard>
 
           <GlassCard>
             <CardHeader>
@@ -1219,26 +1512,26 @@ function SimulatorPage({
             </CardHeader>
             <CardContent className="flex flex-wrap gap-3">
               {[
-                  ["Bullish Day", "bullish"],
-                  ["Bearish Day", "bearish"],
-                  ["High Volatility", "volatility"],
-                  ["Breakout Attempt", "breakout"],
-                  ["Low Volume Drift", "lowvolume"],
-                ].map(([label, type]) => (
-                  <Button
-                    key={type}
-                    onClick={() => onPreset(type)}
-                    variant="outline"
-                    className="rounded-2xl border-white/10 bg-white/5 text-white hover:bg-white/10"
-                  >
-                    {label}
-                  </Button>
-                ))}
+                ["Bullish Day", "bullish"],
+                ["Bearish Day", "bearish"],
+                ["High Volatility", "volatility"],
+                ["Breakout Attempt", "breakout"],
+                ["Low Volume Drift", "lowvolume"],
+              ].map(([label, type]) => (
+                <Button
+                  key={type}
+                  onClick={() => onPreset(type)}
+                  variant="outline"
+                  className="rounded-2xl border-white/10 bg-white/5 text-white hover:bg-white/10 transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
+                >
+                  {label}
+                </Button>
+              ))}
             </CardContent>
           </GlassCard>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -1248,80 +1541,155 @@ function ModelLabPage({
   chartData: CandleType[];
 }) {
   return (
-    <div className="space-y-8">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35 }}
+      className="space-y-8"
+    >
       <div>
-        <p className="text-sm uppercase tracking-[0.2em] text-cyan-300/80">Model Lab</p>
-        <h2 className="mt-2 text-3xl font-semibold tracking-tight">Model Performance & ML Transparency</h2>
-        <p className="mt-2 max-w-3xl text-slate-400">Showcase evaluation metrics, feature importance, and actual vs predicted behavior to make your ML pipeline credible.</p>
+        <p className="text-sm uppercase tracking-[0.2em] text-cyan-300/80">
+          Model Lab
+        </p>
+        <h2 className="mt-2 text-3xl font-semibold tracking-tight">
+          Model Performance & ML Transparency
+        </h2>
+        <p className="mt-2 max-w-3xl text-slate-400">
+          Showcase evaluation metrics, feature importance, and actual vs
+          predicted behavior to make your ML pipeline credible.
+        </p>
       </div>
 
-      <GlassCard>
-        <CardHeader>
-          <CardTitle className="text-white">Model Comparison</CardTitle>
-          <CardDescription className="text-slate-400">Use your real results from outputs/model_results.csv later.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow className="border-white/10 hover:bg-transparent">
-                <TableHead className="text-slate-400">Model</TableHead>
-                <TableHead className="text-slate-400">MAE</TableHead>
-                <TableHead className="text-slate-400">RMSE</TableHead>
-                <TableHead className="text-slate-400">R²</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {modelMetrics.map((row) => (
-                <TableRow key={row.model} className="border-white/10">
-                  <TableCell className="text-slate-200">{row.model}</TableCell>
-                  <TableCell className="text-slate-200">{row.mae}</TableCell>
-                  <TableCell className="text-slate-200">{row.rmse}</TableCell>
-                  <TableCell className="text-slate-200">{row.r2}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </GlassCard>
+      <Tabs defaultValue="comparison" className="space-y-6">
+        <TabsList className="rounded-2xl border border-white/10 bg-white/5 p-1">
+          <TabsTrigger value="comparison" className="rounded-xl">
+            Model Comparison
+          </TabsTrigger>
+          <TabsTrigger value="features" className="rounded-xl">
+            Feature Importance
+          </TabsTrigger>
+          <TabsTrigger value="predictions" className="rounded-xl">
+            Predictions
+          </TabsTrigger>
+        </TabsList>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <GlassCard>
-          <CardHeader>
-            <CardTitle className="text-white">Feature Importance</CardTitle>
-            <CardDescription className="text-slate-400">Perfect for your XGBoost explanation section.</CardDescription>
-          </CardHeader>
-          <CardContent className="h-[340px]">
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={featureImportance} layout="vertical">
-                <CartesianGrid stroke="rgba(255,255,255,0.06)" horizontal={false} />
-                <XAxis type="number" stroke="#CBD5F5" />
-                <YAxis dataKey="feature" type="category" stroke="#CBD5F5" width={90} />
-                <Tooltip />
-                <Bar dataKey="value" fill="#06B6D4" radius={[0, 8, 8, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </GlassCard>
+        {/* Comparison */}
+        <TabsContent value="comparison">
+          <GlassCard>
+            <CardHeader>
+              <CardTitle className="text-white">Model Comparison</CardTitle>
+              <CardDescription className="text-slate-400">
+                Use your real results from outputs/model_results.csv later.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-white/10 hover:bg-transparent">
+                    <TableHead className="text-slate-400">Model</TableHead>
+                    <TableHead className="text-slate-400">MAE</TableHead>
+                    <TableHead className="text-slate-400">RMSE</TableHead>
+                    <TableHead className="text-slate-400">R²</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {modelMetrics.map((row) => (
+                    <TableRow key={row.model} className="border-white/10 hover:bg-white/5 transition-colors">
+                      <TableCell className="text-slate-200">
+                        {row.model}
+                      </TableCell>
+                      <TableCell className="text-slate-200">
+                        {row.mae}
+                      </TableCell>
+                      <TableCell className="text-slate-200">
+                        {row.rmse}
+                      </TableCell>
+                      <TableCell className="text-slate-200">
+                        {row.r2}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </GlassCard>
+        </TabsContent>
 
-        <GlassCard>
-          <CardHeader>
-            <CardTitle className="text-white">Actual vs Predicted</CardTitle>
-            <CardDescription className="text-slate-400">Later replace with real prediction curves from your outputs folder.</CardDescription>
-          </CardHeader>
-          <CardContent className="h-[340px]">
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={chartData.slice(-18)}>
-                <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
-                <XAxis dataKey="time" stroke="#94A3B8" />
-                <YAxis stroke="#94A3B8" />
-                <Tooltip />
-                <Line type="monotone" dataKey="close" stroke="#06B6D4" strokeWidth={3} dot={false} />
-                <Line type="monotone" dataKey="predicted" stroke="#8B5CF6" strokeWidth={2.5} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </GlassCard>
-      </div>
+        {/* Feature Importance */}
+        <TabsContent value="features">
+          <GlassCard>
+            <CardHeader>
+              <CardTitle className="text-white">Feature Importance</CardTitle>
+              <CardDescription className="text-slate-400">
+                Perfect for your XGBoost explanation section.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="h-[380px]">
+              <ResponsiveContainer width="100%" height={320}>
+                <BarChart data={featureImportance} layout="vertical">
+                  <CartesianGrid
+                    stroke="rgba(255,255,255,0.06)"
+                    horizontal={false}
+                  />
+                  <XAxis type="number" stroke="#CBD5F5" />
+                  <YAxis
+                    dataKey="feature"
+                    type="category"
+                    stroke="#CBD5F5"
+                    width={90}
+                  />
+                  <Tooltip />
+                  <Bar
+                    dataKey="value"
+                    fill="#06B6D4"
+                    radius={[0, 8, 8, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </GlassCard>
+        </TabsContent>
+
+        {/* Predictions */}
+        <TabsContent value="predictions">
+          <GlassCard>
+            <CardHeader>
+              <CardTitle className="text-white">Actual vs Predicted</CardTitle>
+              <CardDescription className="text-slate-400">
+                Later replace with real prediction curves from your outputs
+                folder.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="h-[380px]">
+              <ResponsiveContainer width="100%" height={320}>
+                <LineChart data={chartData.slice(-18)}>
+                  <CartesianGrid
+                    stroke="rgba(255,255,255,0.06)"
+                    vertical={false}
+                  />
+                  <XAxis dataKey="time" stroke="#94A3B8" />
+                  <YAxis stroke="#94A3B8" />
+                  <Tooltip />
+                  <Line
+                    type="monotone"
+                    dataKey="close"
+                    stroke="#06B6D4"
+                    strokeWidth={3}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="predicted"
+                    stroke="#8B5CF6"
+                    strokeWidth={2.5}
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </GlassCard>
+        </TabsContent>
+      </Tabs>
 
       <GlassCard>
         <CardHeader>
@@ -1336,25 +1704,44 @@ function ModelLabPage({
               "Model Training",
               "Prediction API",
             ].map((step, i) => (
-              <div key={step} className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <p className="text-xs uppercase tracking-[0.2em] text-cyan-300/70">Step {i + 1}</p>
-                <h3 className="mt-3 text-lg font-semibold text-white">{step}</h3>
+              <div
+                key={step}
+                className="rounded-2xl border border-white/10 bg-white/5 p-5"
+              >
+                <p className="text-xs uppercase tracking-[0.2em] text-cyan-300/70">
+                  Step {i + 1}
+                </p>
+                <h3 className="mt-3 text-lg font-semibold text-white">
+                  {step}
+                </h3>
               </div>
             ))}
           </div>
         </CardContent>
       </GlassCard>
-    </div>
+    </motion.div>
   );
 }
 
-function AboutPage() {
+function AboutPage({ onDownloadSummary }: { onDownloadSummary: () => void }) {
   return (
-    <div className="space-y-8">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35 }}
+      className="space-y-8"
+    >
       <div>
-        <p className="text-sm uppercase tracking-[0.2em] text-cyan-300/80">About</p>
-        <h2 className="mt-2 text-3xl font-semibold tracking-tight">About CryptoVision AI</h2>
-        <p className="mt-2 max-w-3xl text-slate-400">An educational full-stack ML product for multi-cryptocurrency forecasting, analytics, and interactive market scenario simulation.</p>
+        <p className="text-sm uppercase tracking-[0.2em] text-cyan-300/80">
+          About
+        </p>
+        <h2 className="mt-2 text-3xl font-semibold tracking-tight">
+          About CryptoVision AI
+        </h2>
+        <p className="mt-2 max-w-3xl text-slate-400">
+          An educational full-stack ML product for multi-cryptocurrency
+          forecasting, analytics, and interactive market scenario simulation.
+        </p>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
@@ -1363,8 +1750,16 @@ function AboutPage() {
             <CardTitle className="text-white">What This Platform Does</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-sm leading-8 text-slate-300">
-            <p>CryptoVision AI combines historical crypto market data, technical indicators, and machine learning models to forecast next-day closing prices for selected cryptocurrencies.</p>
-            <p>It also includes a manual market scenario simulator, model transparency tools, and a polished dashboard experience designed for portfolio and educational use.</p>
+            <p>
+              CryptoVision AI combines historical crypto market data, technical
+              indicators, and machine learning models to forecast next-day
+              closing prices for selected cryptocurrencies.
+            </p>
+            <p>
+              It also includes a manual market scenario simulator, model
+              transparency tools, and a polished dashboard experience designed
+              for portfolio and educational use.
+            </p>
           </CardContent>
         </GlassCard>
 
@@ -1373,10 +1768,22 @@ function AboutPage() {
             <CardTitle className="text-white">Indicator Guide</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-sm leading-8 text-slate-300">
-            <p><span className="font-semibold text-white">RSI:</span> Measures whether an asset may be overbought or oversold.</p>
-            <p><span className="font-semibold text-white">MACD:</span> Helps identify momentum and trend direction.</p>
-            <p><span className="font-semibold text-white">Moving Average:</span> Smooths price to reveal short-term and long-term trends.</p>
-            <p><span className="font-semibold text-white">Volatility:</span> Indicates how unstable or fast-moving the market is.</p>
+            <p>
+              <span className="font-semibold text-white">RSI:</span> Measures
+              whether an asset may be overbought or oversold.
+            </p>
+            <p>
+              <span className="font-semibold text-white">MACD:</span> Helps
+              identify momentum and trend direction.
+            </p>
+            <p>
+              <span className="font-semibold text-white">Moving Average:</span>{" "}
+              Smooths price to reveal short-term and long-term trends.
+            </p>
+            <p>
+              <span className="font-semibold text-white">Volatility:</span>{" "}
+              Indicates how unstable or fast-moving the market is.
+            </p>
           </CardContent>
         </GlassCard>
       </div>
@@ -1387,19 +1794,28 @@ function AboutPage() {
         </CardHeader>
         <CardContent>
           <div className="text-sm leading-8 text-slate-300">
-            This platform is intended for educational, analytical, and portfolio demonstration purposes only. It does not provide financial advice and should not be used as the sole basis for investment or trading decisions.
+            This platform is intended for educational, analytical, and portfolio
+            demonstration purposes only. It does not provide financial advice
+            and should not be used as the sole basis for investment or trading
+            decisions.
           </div>
         </CardContent>
       </GlassCard>
 
       <div className="flex flex-wrap gap-3">
-        <Button className="rounded-2xl bg-cyan-500 text-slate-950 hover:bg-cyan-400">
+        <Button 
+          onClick={onDownloadSummary}
+          className="rounded-2xl bg-cyan-500 text-slate-950 hover:bg-cyan-400 transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
+        >
           <Download className="mr-2 h-4 w-4" /> Download Project Summary
         </Button>
-        <Button variant="outline" className="rounded-2xl border-white/10 bg-white/5 text-white hover:bg-white/10">
+        <Button
+          variant="outline"
+          className="rounded-2xl border-white/10 bg-white/5 text-white hover:bg-white/10 transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
+        >
           View GitHub
         </Button>
       </div>
-    </div>
+    </motion.div>
   );
 }

@@ -7,7 +7,6 @@ import numpy as np
 
 app = FastAPI()
 
-# ✅ CORS (VERY IMPORTANT for frontend connection)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,7 +15,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ Request schema
 class PredictionRequest(BaseModel):
     crypto: str
     open: float
@@ -25,14 +23,13 @@ class PredictionRequest(BaseModel):
     close: float
     volume: float
 
-# ✅ Load models
+
 models = {
     "BTC": pickle.load(open("../crypto-price-prediction/models/BTC-USD_model.pkl", "rb")),
     "ETH": pickle.load(open("../crypto-price-prediction/models/ETH-USD_model.pkl", "rb")),
     "DOGE": pickle.load(open("../crypto-price-prediction/models/DOGE-USD_model.pkl", "rb")),
 }
 
-# ✅ Feature Engineering (MATCH TRAINING FEATURES EXACTLY)
 def create_features(open_, high, low, close, volume):
     df = pd.DataFrame([{
         "Open": open_,
@@ -56,12 +53,10 @@ def create_features(open_, high, low, close, volume):
 
     return df
 
-# ✅ Root route
 @app.get("/")
 def home():
     return {"message": "CryptoVision AI Backend is running"}
 
-# ✅ Prediction route
 @app.post("/predict")
 def predict(data: PredictionRequest):
     try:
@@ -85,7 +80,6 @@ def predict(data: PredictionRequest):
         # Prediction
         prediction = float(model.predict(input_df)[0])
 
-        # 🔥 TREND + RECOMMENDATION
         if prediction > close:
             trend = "Bullish"
             recommendation = "BUY"
@@ -96,7 +90,6 @@ def predict(data: PredictionRequest):
             trend = "Neutral"
             recommendation = "HOLD"
 
-        # 🔥 CONFIDENCE SCORE
         difference = abs(prediction - close) / close
 
         if difference > 0.05:
@@ -106,7 +99,6 @@ def predict(data: PredictionRequest):
         else:
             confidence = 60
 
-        # 🔥 EXPLANATION LOGIC
         reasons = []
 
         if close > open_:
@@ -127,7 +119,6 @@ def predict(data: PredictionRequest):
         if len(reasons) == 0:
             reasons.append("Market conditions are neutral")
 
-        # ✅ FINAL RESPONSE
         return {
             "crypto": crypto,
             "predicted_price": round(prediction, 2),
