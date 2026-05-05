@@ -32,7 +32,8 @@ It is designed to simulate a **professional trading dashboard experience**, enab
 
 ### 📊 Dashboard
 
-![Dashboard](./images/dashboard.png)
+![Dashboard](<img width="1914" height="951" alt="image" src="https://github.com/user-attachments/assets/914fd600-2fd1-4a1f-9034-490f79d73c63" />
+)
 
 ### 📈 Chart & Indicators
 
