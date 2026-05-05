@@ -4,9 +4,11 @@ from pydantic import BaseModel
 import pickle
 import pandas as pd
 import numpy as np
+import os
 
 app = FastAPI()
 
+# CORS (restrict later)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -14,6 +16,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 📁 FIXED MODEL PATH (IMPORTANT)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR = os.path.join(BASE_DIR, "models")
+
+def load_model(name):
+    path = os.path.join(MODEL_DIR, name)
+    return pickle.load(open(path, "rb"))
+
+models = {
+    "BTC": load_model("BTC-USD_model.pkl"),
+    "ETH": load_model("ETH-USD_model.pkl"),
+    "DOGE": load_model("DOGE-USD_model.pkl"),
+}
+
 
 class PredictionRequest(BaseModel):
     crypto: str
@@ -24,12 +41,6 @@ class PredictionRequest(BaseModel):
     volume: float
 
 
-models = {
-    "BTC": pickle.load(open("../crypto-price-prediction/models/BTC-USD_model.pkl", "rb")),
-    "ETH": pickle.load(open("../crypto-price-prediction/models/ETH-USD_model.pkl", "rb")),
-    "DOGE": pickle.load(open("../crypto-price-prediction/models/DOGE-USD_model.pkl", "rb")),
-}
-
 def create_features(open_, high, low, close, volume):
     df = pd.DataFrame([{
         "Open": open_,
@@ -39,7 +50,6 @@ def create_features(open_, high, low, close, volume):
         "Volume": volume
     }])
 
-    # same features used in training
     df["Daily_Return"] = 0
     df["MA_7"] = close
     df["MA_30"] = close
@@ -53,9 +63,11 @@ def create_features(open_, high, low, close, volume):
 
     return df
 
+
 @app.get("/")
 def home():
-    return {"message": "CryptoVision AI Backend is running"}
+    return {"status": "CryptoVision AI Backend Running"}
+
 
 @app.post("/predict")
 def predict(data: PredictionRequest):
@@ -67,57 +79,42 @@ def predict(data: PredictionRequest):
 
         model = models[crypto]
 
-        # Extract values
-        open_ = data.open
-        high = data.high
-        low = data.low
-        close = data.close
-        volume = data.volume
+        input_df = create_features(
+            data.open,
+            data.high,
+            data.low,
+            data.close,
+            data.volume
+        )
 
-        # Create features
-        input_df = create_features(open_, high, low, close, volume)
-
-        # Prediction
         prediction = float(model.predict(input_df)[0])
 
-        if prediction > close:
+        if prediction > data.close:
             trend = "Bullish"
             recommendation = "BUY"
-        elif prediction < close:
+        elif prediction < data.close:
             trend = "Bearish"
             recommendation = "SELL"
         else:
             trend = "Neutral"
             recommendation = "HOLD"
 
-        difference = abs(prediction - close) / close
+        difference = abs(prediction - data.close) / data.close
 
-        if difference > 0.05:
-            confidence = 90
-        elif difference > 0.02:
-            confidence = 75
-        else:
-            confidence = 60
+        confidence = 90 if difference > 0.05 else 75 if difference > 0.02 else 60
 
         reasons = []
 
-        if close > open_:
-            reasons.append("Price closed higher than it opened (bullish momentum)")
+        if data.close > data.open:
+            reasons.append("Price closed higher than it opened")
 
-        if high - low > close * 0.05:
-            reasons.append("High volatility detected in market")
+        if data.high - data.low > data.close * 0.05:
+            reasons.append("High volatility detected")
 
-        if volume > 30000000000:
+        if data.volume > 30000000000:
             reasons.append("Strong trading volume observed")
 
-        if prediction > close:
-            reasons.append("Model predicts upward movement")
-
-        if prediction < close:
-            reasons.append("Model predicts downward movement")
-
-        if len(reasons) == 0:
-            reasons.append("Market conditions are neutral")
+        reasons.append(f"Model predicts {trend.lower()} movement")
 
         return {
             "crypto": crypto,
@@ -127,9 +124,6 @@ def predict(data: PredictionRequest):
             "confidence": confidence,
             "reasons": reasons
         }
-        
 
     except Exception as e:
-        return {
-            "detail": f"Prediction failed. {str(e)}"
-        }
+        return {"detail": f"Prediction failed: {str(e)}"}
