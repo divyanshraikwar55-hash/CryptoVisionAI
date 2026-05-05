@@ -5,6 +5,8 @@ import pickle
 import pandas as pd
 import numpy as np
 import os
+import xgboost as xgb
+
 
 app = FastAPI()
 
@@ -17,7 +19,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 📁 FIXED MODEL PATH (IMPORTANT)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(BASE_DIR, "models")
 
@@ -94,7 +95,12 @@ def predict(data: PredictionRequest):
             data.volume
         )
 
-        prediction = float(model.predict(input_df)[0])
+
+        dtest = xgb.DMatrix(input_df)
+
+        booster = model.get_booster()
+
+        prediction = float(booster.predict(dtest)[0])
 
         if prediction > data.close:
             trend = "Bullish"
