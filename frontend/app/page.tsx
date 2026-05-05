@@ -340,7 +340,8 @@ export default function CryptoVisionAIFrontend() {
 
     setChartData(formatted);
   } catch (err) {
-    console.error("Fetch error:", err);
+    console.error("Binance API failed:", err);
+    setPredictionError("Failed to fetch chart data. Binance API may be rate limited.");
     setChartData([]);
   } finally {
     setLoadingChart(false);
@@ -423,8 +424,8 @@ export default function CryptoVisionAIFrontend() {
   
 
   const handleRunPrediction = async () => {
-    setPredictionResult(null);   // ✅ clear old success
-    setPredictionError(null);   // ✅ clear old error
+    setPredictionResult(null);   
+    setPredictionError(null);   
     if (
     !scenario.open ||
     !scenario.high ||
@@ -440,53 +441,73 @@ export default function CryptoVisionAIFrontend() {
     setPredictionResult(null);
     setLockedScenario({ ...scenario });
 
+    const API_URL = process.env.NEXT_PUBLIC_API_URL;
+    if (!API_URL) {
+      setPredictionError("API URL not configured");
+      setLoadingPrediction(false);
+      return;
+    }
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/predict", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          crypto: activeCoin.short,
-          open: parseFloat(scenario.open),
-          high: parseFloat(scenario.high),
-          low: parseFloat(scenario.low),
-          close: parseFloat(scenario.close),
-          volume: parseFloat(scenario.volume),
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.detail || "Prediction failed");
-      }
-
-      setPredictionResult(data);
-      setHistory((prev) => {
-      const newEntry = {
-        coin: activeCoin.label,
-        price: data.predicted_price,
-        trend: data.trend,
-        time: new Date().toLocaleTimeString(),
-      };
-
-  return [newEntry, ...prev].slice(0, 5); // keep only last 5
-});
-
-      if (data.trend === "Bullish") {
-        setSignal("BUY");
-      } else if (data.trend === "Bearish") {
-        setSignal("SELL");
-      } else {
-        setSignal("HOLD");
-      }
-    } catch (error: any) {
-      setPredictionError(error.message || "Something went wrong");
-    } finally {
-      setLoadingPrediction(false);
+  const res = await fetch(
+    `${API_URL}/predict`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        crypto: activeCoin.short,
+        open: parseFloat(scenario.open),
+        high: parseFloat(scenario.high),
+        low: parseFloat(scenario.low),
+        close: parseFloat(scenario.close),
+        volume: parseFloat(scenario.volume),
+      }),
     }
+  );
+
+  const text = await res.text();
+  console.log("RAW RESPONSE:", text);
+
+let data;
+try {
+  data = JSON.parse(text);
+} catch (err) {
+  console.error("Invalid JSON:", text);
+  throw new Error("Server returned invalid response");
+}
+
+
+  if (!res.ok) {
+    throw new Error(data.detail || "Prediction failed");
+  }
+
+  setPredictionResult(data);
+
+  setHistory((prev) => {
+    const newEntry = {
+      coin: activeCoin.label,
+      price: data.predicted_price,
+      trend: data.trend,
+      time: new Date().toLocaleTimeString(),
+    };
+
+    return [newEntry, ...prev].slice(0, 5);
+  });
+
+  if (data.trend === "Bullish") {
+    setSignal("BUY");
+  } else if (data.trend === "Bearish") {
+    setSignal("SELL");
+  } else {
+    setSignal("HOLD");
+  }
+} catch (error: any) {
+  setPredictionError(error.message || "Something went wrong");
+} finally {
+  setLoadingPrediction(false);
+}
   };
 
   const handleAutoFill = async () => {
@@ -584,7 +605,8 @@ export default function CryptoVisionAIFrontend() {
     fetchChartData={handleManualRefresh}  
     priceChange={priceChange}
     hoverData={hoverData}               
-    setHoverData={setHoverData}  
+    setHoverData={setHoverData}
+    predictionResult={predictionResult}
   />
 );
       case "simulator":
@@ -903,6 +925,7 @@ function DashboardPage({
   priceChange,
   hoverData,
   setHoverData,
+  predictionResult,
 }: {
   activeCoin: any;
   signal: "BUY" | "HOLD" | "SELL";
@@ -916,6 +939,7 @@ function DashboardPage({
   priceChange: number | null;
   hoverData: any;
   setHoverData: (data: any) => void;
+  predictionResult: any;
 }) {
   const trendIcon = signal === "BUY" ? TrendingUp : signal === "SELL" ? TrendingDown : Minus;
   return (
@@ -1032,13 +1056,13 @@ function DashboardPage({
                 className: "h-8 w-8 text-cyan-300",
               })}
               <div>
-                <h3 className="text-2xl font-semibold text-white">Bullish</h3>
+                <h3 className="text-2xl font-semibold text-white">{signal}</h3>
                 <p className="text-xs text-slate-400">
                   Positive short-term continuation
                 </p>
               </div>
             </div>
-            <ConfidenceMeter value={84} />
+            <ConfidenceMeter value={predictionResult?.confidence || 0} />
           </CardContent>
         </GlassCard>
       </div>
@@ -1810,11 +1834,17 @@ function AboutPage({ onDownloadSummary }: { onDownloadSummary: () => void }) {
           <Download className="mr-2 h-4 w-4" /> Download Project Summary
         </Button>
         <Button
-          variant="outline"
-          className="rounded-2xl border-white/10 bg-white/5 text-white hover:bg-white/10 transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
-        >
-          View GitHub
-        </Button>
+  onClick={() =>
+    window.open(
+      "https://github.com/divyanshraikwar55-hash/CryptoVisionAI",
+      "_blank"
+    )
+  }
+  variant="outline"
+  className="rounded-2xl border-white/10 bg-white/5 text-white hover:bg-white/10 transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
+>
+  View GitHub
+</Button>
       </div>
     </motion.div>
   );
