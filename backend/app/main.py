@@ -23,7 +23,14 @@ MODEL_DIR = os.path.join(BASE_DIR, "models")
 
 def load_model(name):
     path = os.path.join(MODEL_DIR, name)
-    return pickle.load(open(path, "rb"))
+    model = pickle.load(open(path, "rb"))
+
+    try:
+        model.set_params(tree_method="hist")
+    except:
+        pass
+
+    return model
 
 models = {
     "BTC": load_model("BTC-USD_model.pkl"),
