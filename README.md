@@ -276,7 +276,7 @@ CryptoVision AI demonstrates:
 ✔ Real-Time Data Visualization  
 ✔ Product-Level UI/UX Design  
 ```
-
+Deployed on "https://cryptovision-ai.netlify.app/"
 ---
 
 ## 📄 Project Summary
